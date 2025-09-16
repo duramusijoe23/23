@@ -6,7 +6,7 @@ import AlertSystem from './AlertSystem';
 import NetworkDevices from './NetworkDevices';
 import { useTheme } from '../hooks/useTheme';
 import { realTimeMonitor, RealTimeData } from '../services/RealTimeMonitor';
-import { networkMonitor } from '../services/NetworkMonitor';
+import { deviceDiscovery, NetworkDevice } from '../services/DeviceDiscovery';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 interface UserProfile {
@@ -35,6 +35,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const { theme, toggleTheme } = useTheme();
   const [realTimeData, setRealTimeData] = useState<RealTimeData | null>(null);
   const [systemStatus, setSystemStatus] = useState<any>(null);
+  const [networkDevices, setNetworkDevices] = useState<NetworkDevice[]>([]);
 
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -42,9 +43,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     // Start real-time monitoring
     realTimeMonitor.start();
     
+    // Get initial devices
+    setNetworkDevices(deviceDiscovery.getDevices());
+    
     // Listen for real-time updates
     const unsubscribe = realTimeMonitor.onDataUpdate((data) => {
       setRealTimeData(data);
+    });
+
+    // Listen for device updates
+    const unsubscribeDevices = deviceDiscovery.onDevicesUpdate((devices) => {
+      setNetworkDevices(devices);
     });
 
     // Get system status
@@ -57,22 +66,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
 
     return () => {
       unsubscribe();
+      unsubscribeDevices();
       realTimeMonitor.stop();
       clearInterval(statusInterval);
     };
   }, []);
 
+  const activeDevicesCount = networkDevices.filter(device => 
+    device.status === 'online' || device.status === 'responding'
+  ).length;
+
   const stats = realTimeData ? {
     totalBandwidth: 1000,
     usedBandwidth: Math.round(realTimeData.bandwidth.download / 1000),
-    activeDevices: systemStatus?.network.status === 'connected' ? 5 : 0,
+    activeDevices: activeDevicesCount,
     threats: realTimeData.security.events.length,
     alerts: realTimeData.security.events.filter(e => e.severity === 'high' || e.severity === 'critical').length,
     uptime: `${realTimeData.performance.networkQuality}%`
   } : {
     totalBandwidth: 1000,
     usedBandwidth: 0,
-    activeDevices: 0,
+    activeDevices: activeDevicesCount,
     threats: 0,
     alerts: 0,
     uptime: '0%'
@@ -249,7 +263,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                     }`}>Active Devices</p>
                     <p className="text-2xl font-bold text-blue-400">{stats.activeDevices}</p>
                     <p className="text-xs text-blue-400">
-                      {systemStatus?.network.status || 'Unknown'} network
+                      {networkDevices.length} total discovered
                     </p>
                   </div>
                   <Users className="h-8 w-8 text-blue-400" />
